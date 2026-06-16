@@ -1,40 +1,45 @@
 FROM php:8.2-apache
 
-# Se instalan herramientas necesarias para que Composer pueda descargar dependencias
+# Se instalan herramientas necesarias para que Composer pueda descargar paquetes
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
     zip \
+    libzip-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Se instalan las extensiones necesarias para conectar PHP con MySQL
-RUN docker-php-ext-install pdo pdo_mysql
+# Se instalan extensiones necesarias para trabajar con MySQL y archivos ZIP
+RUN docker-php-ext-install pdo_mysql zip
 
 # Se copia Composer dentro del contenedor
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Se activa mod_rewrite para que funcionen las rutas de Slim
+# Se activa mod_rewrite para que Slim pueda manejar rutas como /doctores
 RUN a2enmod rewrite
 
-# Se define la carpeta de trabajo del proyecto
+# Se define la carpeta principal del proyecto
 WORKDIR /var/www/html
 
 # Se copian los archivos de la API al servidor
 COPY . .
 
-# Se instalan las dependencias del proyecto con Composer
+# Se instalan las dependencias de Slim desde composer.json
 RUN composer install --no-dev --optimize-autoloader
 
-# Se configura Apache para usar la carpeta public como raíz del proyecto
+# Se configura Apache para usar public como carpeta raíz
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 
-# Se permite el uso de .htaccess
-RUN sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+# Se permite el uso de .htaccess dentro de public
+RUN printf '<Directory /var/www/html/public>\n\
+    Options Indexes FollowSymLinks\n\
+    AllowOverride All\n\
+    Require all granted\n\
+</Directory>\n' > /etc/apache2/conf-available/public-override.conf \
+    && a2enconf public-override
 
-# Se evita una advertencia de Apache
+# Se evita una advertencia común de Apache
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
 EXPOSE 80
